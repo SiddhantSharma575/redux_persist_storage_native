@@ -5,18 +5,40 @@ import {
   Button,
   Text,
   FlatList,
-  Image
+  Image,
+  PermissionsAndroid
 } from 'react-native';
 import { connect } from "react-redux"
 import {changeCount} from "./redux/actions/counts"
 import { getUsersFetch , getProductFetch, changeProductStatus } from './redux/actions/counts';
+import RNFetchBlob from 'rn-fetch-blob';
+import NetInfo from "@react-native-community/netinfo";
+
 
 
 
 class App extends Component {
   constructor() {
     super()
+    this.state = {
+      isOffline  : false
+    }
   }
+  componentDidMount() {
+    NetInfo.addEventListener((state) => {
+      const offline = !(state.isConnected && state.isInternetReachable);
+      this.setState({
+        ...this.state,
+        isOffline : offline
+      })
+    })
+  }
+
+  componentWillUnmount() {
+    
+  }
+
+
 
   decrementCount() {
     let { count, changeCount } = this.props;
@@ -34,15 +56,82 @@ class App extends Component {
     let {getUsersFetch, getProductFetch} =  this.props;
     getProductFetch()
   }
+  checkPermission = async (id, url) => {
+    if (Platform.OS === 'ios') {
+      this.downloadImage(id,url);
+    } else {
+      try {
+        const granted = await PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
+          {
+            title: 'Storage Permission Required',
+            message:
+              'App needs access to your storage to download Photos',
+          }
+        );
+        
+        console.log('granted',granted,await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE))
+        if (granted === PermissionsAndroid.RESULTS.GRANTED) {
+          console.log('Storage Permission Granted.');
+          this.downloadImage(id,url);
+        } else {
+          await  PermissionsAndroid.request(
+          PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
+          {
+            title: 'Storage Permission Required',
+            message:
+              'App needs access to your storage to download Photos',
+          }
+        );
+          alert('Storage Permission Not Granted');
+        }
+      } catch (err) {
+        console.warn(err);
+      }
+    }
+  };
 
-  downloadImage(id) {
-    
-  
-      this.props.changeProductStatusAction(id,true,'abc')
+
+  getExtention = filename => {
+    return /[.]/.exec(filename) ?
+             /[^.]+$/.exec(filename) : undefined;
+  };
+
+
+  downloadImage(id, url) {
+    let date = new Date();
+    let ext = this.getExtention(url);
+    ext = '.' + ext[0];
+    const { config, fs } = RNFetchBlob;
+    let PictureDir = fs.dirs.PictureDir;
+    let options = {
+      fileCache: true,
+      addAndroidDownloads: {
+        // Related to the Android only
+        useDownloadManager: true,
+        notification: true,
+        path:
+          PictureDir +
+          '/image_' + 
+          Math.floor(date.getTime() + date.getSeconds() / 2) +
+          ext,
+        description: 'Image',
+      },
+    };
+    config(options)
+    .fetch('GET', url)
+    .then(res => {
+      console.log("RES -->", JSON.stringify(res))
+      this.props.changeProductStatusAction(id,true,res.data)
+      alert("Image Download Successfully")
+    })
+
+      // this.props.changeProductStatusAction(id,true,'abc')
   }
 
   render() {
     const { count, users , products } = this.props;
+    console.log(this.state.isOffline)
     return (
       <View styles={styles.container}>
         <Button
@@ -82,11 +171,11 @@ class App extends Component {
                   height : 200,
                   marginBottom : 20
                  }}
-                 source={{uri : item.thumbnail}}
+                 source={{uri : this.state.isOffline && item.isDownloaded ? `file:///${item.downloadPath}` : item.thumbnail}}
                 />
                 <Text>Downlaod Status : {!item.isDownloaded ? "NOT DOWNLOADED" : "DOWNLOADED"}</Text>
                 <Text>Download Path : {item.downloadPath}</Text>
-                <Button title="Download Image" onPress={() => this.props.changeProductStatusAction(item.id,true,'abc')} />
+                <Button title="Download Image" onPress={() => this.checkPermission(item.id, item.thumbnail)} />
             </View>
           )}
          />
